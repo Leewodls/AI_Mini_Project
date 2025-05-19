@@ -1,6 +1,6 @@
 # AI_Mini_Project
 
-'''
+```
 UAM_Tech_Trend_Analysis/
 ├── .env                    # 환경 변수 파일
 ├── main.py                 # 메인 실행 파일
@@ -31,7 +31,7 @@ UAM_Tech_Trend_Analysis/
 │   └── reports/              # 보고서 파일 저장
 └── config/                 # 설정 파일
     └── uam_agent_prompts.yaml   # 에이전트 프롬프트 설정 파일
-'''
+```
 
 ## 환경 설정
 
