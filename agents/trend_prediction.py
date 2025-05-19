@@ -1,6 +1,7 @@
 import logging
 import yaml
 import os
+import json
 from typing import List, Dict, Any
 from openai import OpenAI
 from util.agent_state import AgentState, TrendPrediction
@@ -61,37 +62,68 @@ class TrendPrediction:
     def _predict_trends(self, trends: List[Any]) -> List[TrendPrediction]:
         """트렌드 예측"""
         try:
+            if not trends:
+                logger.warning("예측할 트렌드가 없습니다.")
+                return []
+
+            logger.info(f"총 {len(trends)}개의 트렌드 예측 시작")
+            
             # 트렌드 정보를 텍스트로 변환
             text = "\n\n".join([
-                f"트렌드: {trend.name}\n설명: {trend.description}\n중요도: {trend.importance}"
+                f"트렌드: {trend.name}\n"
+                f"설명: {trend.description}\n"
+                f"중요도: {trend.importance}\n"
+                f"증거: {', '.join(trend.evidence)}"
                 for trend in trends
             ])
+            
+            logger.debug(f"예측할 텍스트 크기: {len(text)} 문자")
             
             # GPT 모델 호출
             response = self.client.chat.completions.create(
                 model="gpt-4-turbo-preview",
                 messages=[
                     {"role": "system", "content": self.prompts['system_prompt']},
-                    {"role": "user", "content": self.prompts['prompts']['trend_forecasting'].format(
-                        text=text
+                    {"role": "user", "content": self.prompts['prompts']['prediction'].format(
+                        trend_name=trends[0].name,  # 첫 번째 트렌드 정보로 프롬프트 포맷팅
+                        trend_description=trends[0].description,
+                        trend_evidence=', '.join(trends[0].evidence)
                     )}
                 ],
                 response_format={"type": "json_object"}
             )
             
             result = response.choices[0].message.content
-            predictions_data = result.get('predictions', [])
+            logger.debug(f"GPT 응답 수신: {len(result)} 문자")
+            logger.debug(f"GPT 응답 내용: {result[:500]}...")
             
-            return [
-                TrendPrediction(
-                    trend_name=pred['trend_name'],
-                    prediction=pred['prediction'],
-                    timeframe=pred['timeframe'],
-                    confidence=pred['confidence'],
-                    factors=pred['factors']
+            try:
+                # JSON 문자열을 파싱
+                prediction_data = json.loads(result)
+                logger.debug(f"파싱된 예측 데이터 구조: {json.dumps(prediction_data, ensure_ascii=False, indent=2)[:1000]}...")
+                
+                if not isinstance(prediction_data, dict):
+                    logger.error("응답이 딕셔너리 형식이 아닙니다")
+                    return []
+                
+                # 예측 데이터 생성
+                prediction = TrendPrediction(
+                    prediction=str(prediction_data.get('prediction', '')),
+                    confidence=float(prediction_data.get('confidence', 0.5)),
+                    timeframe=str(prediction_data.get('timeframe', '')),
+                    market_impact=str(prediction_data.get('market_impact', '')),
+                    risks=list(prediction_data.get('risks', [])),
+                    opportunities=list(prediction_data.get('opportunities', [])),
+                    recommendations=list(prediction_data.get('recommendations', []))
                 )
-                for pred in predictions_data
-            ]
+                
+                logger.info(f"트렌드 '{trends[0].name}' 예측 완료")
+                return [prediction]
+                
+            except json.JSONDecodeError as e:
+                logger.error(f"JSON 파싱 실패: {str(e)}")
+                logger.debug(f"원본 응답: {result}")
+                return []
             
         except Exception as e:
             logger.error(f"트렌드 예측 중 오류 발생: {str(e)}")

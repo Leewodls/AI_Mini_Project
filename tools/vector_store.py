@@ -101,12 +101,11 @@ class VectorStore:
             query_embedding = self.model.encode(query).tolist()
             logger.debug(f"쿼리 임베딩 생성 완료: {query[:50]}...")
             
-            # 검색 실행
+            # 검색 실행 (타입 필터 제거)
             results = self.collection.query(
                 query_embeddings=[query_embedding],
                 n_results=min(n_results, len(collection_data['ids'])),
-                include=["documents", "metadatas", "distances"],
-                where={"type": {"$in": ["overview", "market", "challenge"]}}  # 특정 타입만 검색
+                include=["documents", "metadatas", "distances"]
             )
             
             # 결과 포맷팅

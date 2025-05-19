@@ -66,11 +66,19 @@ class TechTrendSummarizer:
     def _summarize_trends(self, retrieved_data: List[Any]) -> List[Trend]:
         """검색된 데이터를 바탕으로 트렌드 요약"""
         try:
+            if not retrieved_data:
+                logger.warning("요약할 검색 데이터가 없습니다.")
+                return []
+
+            logger.info(f"총 {len(retrieved_data)}개의 데이터로 트렌드 요약 시작")
+            
             # 검색된 데이터를 텍스트로 변환
             text = "\n\n".join([
                 f"제목: {data.title}\n내용: {data.content}\n주요 포인트: {', '.join(data.key_points)}"
                 for data in retrieved_data
             ])
+            
+            logger.debug(f"요약할 텍스트 크기: {len(text)} 문자")
             
             # GPT 모델 호출
             response = self.client.chat.completions.create(
@@ -85,27 +93,61 @@ class TechTrendSummarizer:
             )
             
             result = response.choices[0].message.content
+            logger.debug(f"GPT 응답 수신: {len(result)} 문자")
+            logger.debug(f"GPT 응답 내용: {result[:500]}...")  # 처음 500자만 로깅
+            
             try:
                 # JSON 문자열을 파싱
                 trends_data = json.loads(result)
+                logger.debug(f"파싱된 트렌드 데이터 구조: {json.dumps(trends_data, ensure_ascii=False, indent=2)[:1000]}...")
                 if not isinstance(trends_data, dict):
                     logger.error("응답이 딕셔너리 형식이 아닙니다")
                     return []
                 
-                trends = trends_data.get('trends', [])
+                # key_trends 또는 trends 필드 확인
+                trends = trends_data.get('key_trends', trends_data.get('trends', []))
                 if not isinstance(trends, list):
-                    logger.error("trends가 리스트 형식이 아닙니다")
+                    logger.error("트렌드 데이터가 리스트 형식이 아닙니다")
                     return []
                 
-                return [
-                    Trend(
-                        name=trend['name'],
-                        description=trend['description'],
-                        evidence=trend['evidence'],
-                        importance=trend['importance']
-                    )
-                    for trend in trends
-                ]
+                if not trends:
+                    logger.warning("요약된 트렌드가 없습니다")
+                    return []
+                
+                logger.info(f"총 {len(trends)}개의 트렌드 요약 완료")
+                
+                trend_objects = []
+                for idx, trend in enumerate(trends, 1):
+                    try:
+                        # 다양한 필드명 지원
+                        name = trend.get('name') or trend.get('trend_name', '')
+                        description = trend.get('description', '')
+                        evidence = trend.get('evidence') or trend.get('supporting_evidence', [])
+                        importance = trend.get('importance', 'medium')
+                        
+                        if not name or not description:
+                            logger.warning(f"트렌드 {idx}의 필수 정보가 누락되었습니다")
+                            continue
+                            
+                        trend_obj = Trend(
+                            name=str(name),
+                            description=str(description),
+                            evidence=list(evidence) if isinstance(evidence, (list, tuple)) else [str(evidence)],
+                            importance=str(importance)
+                        )
+                        trend_objects.append(trend_obj)
+                        logger.debug(f"트렌드 {idx}/{len(trends)} 생성 완료: {trend_obj.name}")
+                    except Exception as e:
+                        logger.error(f"트렌드 {idx} 객체 생성 실패: {str(e)}")
+                        continue
+                
+                if not trend_objects:
+                    logger.error("생성된 트렌드 객체가 없습니다")
+                    return []
+                
+                logger.info(f"총 {len(trend_objects)}개의 트렌드 객체 생성 완료")
+                return trend_objects
+                
             except json.JSONDecodeError as e:
                 logger.error(f"JSON 파싱 실패: {str(e)}")
                 logger.debug(f"원본 응답: {result}")

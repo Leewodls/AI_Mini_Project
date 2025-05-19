@@ -35,6 +35,15 @@ class DataPreprocessor:
         self.client = OpenAI(api_key=self.openai_api_key)
         self.prompts = self._load_prompts()
         self.timeout = 30  # API 호출 타임아웃 (초)
+        
+        # Vector DB 초기화
+        try:
+            self.vector_store = VectorStore()
+            logger.info("Vector DB 초기화 완료")
+        except Exception as e:
+            logger.error(f"Vector DB 초기화 실패: {str(e)}")
+            raise
+            
         logger.info("데이터 전처리 에이전트 초기화 완료")
         
     def _load_prompts(self) -> Dict:
@@ -233,6 +242,8 @@ class DataPreprocessor:
             
             logger.info(f"총 {len(state.research_data)}개의 데이터 전처리 시작")
             
+            processed_documents = []  # Vector DB에 저장할 문서 목록
+            
             # 각 데이터 전처리
             for i, data in enumerate(state.research_data):
                 try:
@@ -249,6 +260,19 @@ class DataPreprocessor:
                     data.summary = cleaned_text
                     data.key_points = keywords
                     
+                    # Vector DB 저장을 위한 문서 준비
+                    processed_documents.append({
+                        'text': cleaned_text,
+                        'metadata': {
+                            'title': data.title,
+                            'source': data.source,
+                            'url': data.url,
+                            'type': data.type or 'research',
+                            'key_points': keywords,
+                            'original_id': data.id
+                        }
+                    })
+                    
                     logger.debug(f"데이터 {i+1} 전처리 완료: {len(keywords)}개 키워드")
                     
                 except Exception as e:
@@ -259,6 +283,15 @@ class DataPreprocessor:
             
             # 전처리된 데이터 필터링 (최소한의 데이터는 유지)
             state.research_data = [data for data in state.research_data if data.summary]
+            
+            # Vector DB에 문서 저장
+            if processed_documents:
+                try:
+                    self.vector_store.add_documents(processed_documents)
+                    logger.info(f"Vector DB에 {len(processed_documents)}개의 문서 저장 완료")
+                except Exception as e:
+                    logger.error(f"Vector DB 저장 중 오류 발생: {str(e)}")
+                    state.add_error("Vector DB 저장 실패")
             
             logger.info(f"전처리 완료: {len(state.research_data)}개 데이터")
             return state
