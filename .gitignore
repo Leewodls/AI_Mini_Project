@@ -1,0 +1,54 @@
+# Python 가상 환경
+my_env
+data
+
+
+# 환경 변수 파일
+.env
+*.env
+.env.*
+
+# 로그 파일
+logs/
+*.log
+logs/app.log
+
+# 데이터 파일 및 결과 파일
+data/
+outputs/
+data/vectordb/
+*.csv
+*.tsv
+*.json
+*.db
+*.sqlite
+outputs/report.pdf
+
+# 모델 파일 및 캐시 파일
+models/
+checkpoints/
+*.h5
+*.ckpt
+*.pt
+*.pth
+openai_cache/
+vector_cache/
+vectordb/
+
+# 설정 파일 (YAML)
+config/*.yaml
+
+# 시스템 파일 및 IDE 관련 파일
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+logs
+
+agents/__pycache__
+tools/__pycache__
+util/__pycache__
+workflows/__pycache__
