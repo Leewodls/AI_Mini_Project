@@ -34,7 +34,7 @@
 | Framework  | Python 3.8+                  |
 | LLM        | GPT-4-turbo-preview via OpenAI API |
 | Retrieval  | ChromaDB (벡터 데이터베이스)    |
-| Database   | SQLite (트렌드 및 예측 데이터 저장) |
+| Database   | N/A (상태 객체 내 관리)         |
 | PDF        | WeasyPrint (보고서 생성)     |
 | Utils      | PyYAML, python-dotenv, logging |
 | Search     | SerpAPI, Tavily API (데이터 수집) |
@@ -72,13 +72,10 @@ graph TD
     
     subgraph "데이터 저장소"
         H[(ChromaDB)]
-        I[(SQLite)]
     end
     
     B -->|벡터 저장| H
     C -->|벡터 검색| H
-    D -->|트렌드 저장| I
-    E -->|예측 저장| I
 ```
 
 ## Directory Structure
