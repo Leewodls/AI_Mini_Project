@@ -129,7 +129,7 @@ pip install -r requirements.txt
 ```
 
 2. 환경 변수 설정:
-```
+```bash
 # 환경 변수 파일 생성
 touch .env
 # .env 파일에 다음 API 키 설정
