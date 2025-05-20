@@ -124,8 +124,9 @@ pip install -r requirements.txt
 ```
 
 2. 환경 변수 설정:
-```bash
-cp .env.example .env
+```
+# 환경 변수 파일 생성
+touch .env
 # .env 파일에 다음 API 키 설정
 # OPENAI_API_KEY=your_openai_api_key
 # TAVILY_API_KEY=your_tavily_api_key
@@ -137,10 +138,3 @@ cp .env.example .env
 python main.py
 ```
 
-## 라이선스
-
-MIT License
-
-## 기여
-
-프로젝트에 기여하고 싶으시다면 Pull Request를 보내주세요. 모든 기여를 환영합니다.
