@@ -70,17 +70,16 @@ class TrendPrediction:
 
 @dataclass
 class Report:
-    """보고서 클래스"""
-    title: str
-    executive_summary: str
-    introduction: str
-    methodology: str
-    findings: str
-    trend_analysis: str
-    future_outlook: str
-    conclusion: str
-    recommendations: str
-    appendix: str
+    """분석 보고서 클래스"""
+    title: str = ''
+    executive_summary: str = ''
+    introduction: str = ''
+    findings: str = ''
+    trend_analysis: str = ''
+    future_outlook: str = ''
+    conclusion: str = ''
+    recommendations: str = ''
+    appendix: str = ''
 
 @dataclass
 class AgentState:

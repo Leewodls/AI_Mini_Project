@@ -15,7 +15,7 @@
   - OpenAI API: GPT-4-turbo-preview 모델 활용
   - ChromaDB: 벡터 데이터베이스
   - WeasyPrint: PDF 보고서 생성
-  - Sentence Transformers: 다국어 텍스트 임베딩
+  - Sentence Transformers: 텍스트 임베딩(다국어 지원 모델)
 
 ## Features
 
@@ -31,14 +31,14 @@
 
 | Category   | Details                      |
 |------------|------------------------------|
-| Framework  | Python 3.8+                  |
+| Framework  | Python 3.11                  |
 | LLM        | GPT-4-turbo-preview via OpenAI API |
 | Retrieval  | ChromaDB (벡터 데이터베이스)    |
 | Database   | N/A (상태 객체 내 관리)         |
 | PDF        | WeasyPrint (보고서 생성)     |
 | Utils      | PyYAML, python-dotenv, logging |
 | Search     | SerpAPI, Tavily API (데이터 수집) |
-| Embedding  | Sentence Transformers (다국어 텍스트 임베딩) |
+| Embedding  | Sentence Transformers (텍스트 임베딩) |
 
 ## Agents
  
@@ -106,6 +106,7 @@ graph TD
 │   └── agentic_rag_graph.py # 에이전트 워크플로우
 ├── main.py              # 메인 실행 스크립트
 ├── requirements.txt      # 의존성 패키지
+├── .env                  # 환경변수 파일
 └── README.md            # 프로젝트 문서
 ```
 
@@ -115,6 +116,13 @@ graph TD
 ```bash
 # macOS 필수 의존성 설치
 brew install pango cairo gdk-pixbuf
+
+```bash
+# Windows 필수 의존성 설치
+# 아래 링크에서 WeasyPrint 설치 프로그램을 다운로드하여 실행하세요.
+# 필요한 모든 라이브러리(Pango, Cairo, GDK-Pixbuf 등)가 포함되어 있습니다.
+# https://weasyprint.org/download/
+```
 
 # Python 패키지 설치
 pip install -r requirements.txt

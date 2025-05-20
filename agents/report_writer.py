@@ -329,7 +329,6 @@ class ReportWriter:
                 "sections": {
                     "executive_summary": len(report_obj.executive_summary),
                     "introduction": len(report_obj.introduction),
-                    "methodology": len(report_obj.methodology),
                     "findings": len(report_obj.findings),
                     "trend_analysis": len(report_obj.trend_analysis),
                     "future_outlook": len(report_obj.future_outlook),
@@ -420,38 +419,29 @@ class ReportWriter:
             return state
     
     def _convert_report_to_markdown(self, report: Report) -> str:
-        """보고서를 마크다운 형식으로 변환"""
-        md = f"# {report.title}\n\n"
-        
-        md += "## 실행 요약\n"
-        md += f"{report.executive_summary}\n\n"
-        
-        md += "## 서론\n"
-        md += f"{report.introduction}\n\n"
-        
-        md += "## 연구 방법론\n"
-        md += f"{report.methodology}\n\n"
-        
-        md += "## 주요 발견사항\n"
-        md += f"{report.findings}\n\n"
-        
-        md += "## 트렌드 분석\n"
-        md += f"{report.trend_analysis}\n\n"
-        
-        md += "## 미래 전망\n"
-        md += f"{report.future_outlook}\n\n"
-        
-        md += "## 결론\n"
-        md += f"{report.conclusion}\n\n"
-        
-        md += "## 권장사항\n"
-        md += f"{report.recommendations}\n\n"
-        
-        if report.appendix:
-            md += "## 부록\n"
-            md += f"{report.appendix}\n\n"
-        
-        return md
+        """Report 객체를 Markdown 문자열로 변환"""
+        markdown_content = f"# {report.title}\n\n"
+
+        # Executive Summary
+        if report.executive_summary:
+            markdown_content += f"## Executive Summary\n\n{report.executive_summary}\n\n---\n\n"
+
+        # Sections
+        sections_to_include = [
+            ("Introduction", report.introduction),
+            ("Findings", report.findings),
+            ("Trend Analysis", report.trend_analysis),
+            ("Future Outlook", report.future_outlook),
+            ("Conclusion", report.conclusion),
+            ("Recommendations", report.recommendations),
+            ("Appendix", report.appendix)
+        ]
+
+        for title, content in sections_to_include:
+            if content:
+                markdown_content += f"## {title}\n\n{content}\n\n"
+
+        return markdown_content
 
     def _generate_report(self, trends: List[Trend], predictions: List[TrendPrediction]) -> Optional[Report]:
         """보고서 생성"""
@@ -509,7 +499,6 @@ class ReportWriter:
             # 3. 나머지 섹션 생성
             section_prompts = {
                 'introduction': "UAM의 정의, 현재 시장 상황, 연구 목적을 포함한 서론을 작성해주세요.",
-                'methodology': "데이터 수집 및 분석 방법에 대한 연구 방법론을 작성해주세요.",
                 'findings': "핵심 트렌드를 요약한 주요 발견사항을 작성해주세요.",
                 'trend_analysis': "각 트렌드별 상세 분석을 작성해주세요.",
                 'future_outlook': "예측 결과와 시나리오를 포함한 미래 전망을 작성해주세요.",
@@ -525,7 +514,7 @@ class ReportWriter:
                         {"role": "user", "content": f"다음 정보를 바탕으로 {section}를 작성해주세요:\n\n트렌드:\n{trends_text}\n\n예측:\n{predictions_text}"}
                     ],
                     temperature=0.7,
-                    max_tokens=1000
+                    max_tokens=2300
                 )
                 sections[section] = response.choices[0].message.content.strip()
             
@@ -537,7 +526,6 @@ class ReportWriter:
                 title=sections['title'],
                 executive_summary=sections['executive_summary'],
                 introduction=sections['introduction'],
-                methodology=sections['methodology'],
                 findings=sections['findings'],
                 trend_analysis=sections['trend_analysis'],
                 future_outlook=sections['future_outlook'],
@@ -553,13 +541,10 @@ class ReportWriter:
     def _generate_references_content(self, trends: List[Trend], predictions: List[TrendPrediction]) -> str:
         """참고문헌 및 출처 내용 생성"""
         try:
-            references_text = "### 참고문헌\n\n"
+            references_text = "### 핵심 키워드\n\n"
             
             # 트렌드에서 참고문헌 수집
             for trend in trends:
-                if trend.sources:
-                    for source in trend.sources:
-                        references_text += f"- {source}\n"
                 if trend.evidence:
                     for evidence in trend.evidence:
                         references_text += f"- {evidence}\n"

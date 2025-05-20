@@ -236,9 +236,6 @@ report_writer:
       introduction:
         type: string
         description: 서론
-      methodology:
-        type: string
-        description: 연구 방법론
       findings:
         type: string
         description: 주요 발견사항
@@ -273,7 +270,6 @@ report_writer:
          - 제목: 명확하고 간결한 보고서 제목
          - 실행 요약: 핵심 내용 5줄 요약
          - 서론: UAM 정의, 현재 시장 상황, 연구 목적
-         - 연구 방법론: 데이터 수집 및 분석 방법
          - 주요 발견사항: 핵심 트렌드 요약
          - 트렌드 분석: 각 트렌드별 상세 분석
          - 미래 전망: 예측 결과 및 시나리오
@@ -293,7 +289,6 @@ report_writer:
          "title": "보고서 제목",
          "executive_summary": "실행 요약 내용",
          "introduction": "서론 내용",
-         "methodology": "연구 방법론 내용",
          "findings": "주요 발견사항 내용",
          "trend_analysis": "트렌드 분석 내용",
          "future_outlook": "미래 전망 내용",
