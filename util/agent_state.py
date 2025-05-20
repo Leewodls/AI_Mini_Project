@@ -54,13 +54,13 @@ class Trend:
 @dataclass
 class TrendPrediction:
     """트렌드 예측 클래스"""
-    prediction: str
-    confidence: float
-    timeframe: str
-    market_impact: str
-    risks: List[str]
-    opportunities: List[str]
-    recommendations: List[str]
+    prediction: str = ''
+    confidence: float = 0.5
+    timeframe: str = ''
+    market_impact: str = ''
+    risks: List[str] = field(default_factory=list)
+    opportunities: List[str] = field(default_factory=list)
+    recommendations: List[str] = field(default_factory=list)
 
 @dataclass
 class Report:

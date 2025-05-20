@@ -1,4 +1,4 @@
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 from datetime import datetime
 import openai
 import os
@@ -8,6 +8,7 @@ import logging
 from openai import OpenAI
 import yaml
 from dotenv import load_dotenv
+import json
 
 logger = logging.getLogger(__name__)
 
@@ -47,10 +48,10 @@ class ReportWriter:
             if not self.openai_api_key:
                 return self._generate_summary_fallback(trends, predictions)
             
-            summary_text = f"트렌드: {[trend.name for trend in trends]}\n예측: {[pred.technology for pred in predictions]}"
+            summary_text = f"트렌드: {[trend.name for trend in trends]}\n예측: {[pred.prediction for pred in predictions]}"
             
-            response = openai.ChatCompletion.create(
-                model="gpt-4",
+            response = self.client.chat.completions.create(
+                model="gpt-4-turbo-preview",
                 messages=[
                     {"role": "system", "content": "당신은 UAM 기술 트렌드 분석 전문가입니다. 모든 결과는 반드시 한국어로 작성하세요."},
                     {"role": "user", "content": f"다음 트렌드와 예측 데이터를 바탕으로 요약을 작성해주세요. 반드시 한국어로 작성하세요.\n\n{summary_text}"}
@@ -60,7 +61,7 @@ class ReportWriter:
             )
             return response.choices[0].message.content
         except Exception as e:
-            print(f"LLM 요약 생성 중 오류: {str(e)}")
+            logger.error(f"LLM 요약 생성 중 오류: {str(e)}")
             return self._generate_summary_fallback(trends, predictions)
     
     def _generate_summary_fallback(self, trends: List[Trend], predictions: List[TrendPrediction]) -> str:
@@ -75,7 +76,7 @@ class ReportWriter:
         
         summary += "\n주요 예측:\n"
         for pred in predictions[:5]:
-            summary += f"- {pred.technology}: {pred.prediction}\n"
+            summary += f"- {pred.prediction} (신뢰도: {pred.confidence:.2f})\n"
         
         return summary
     
@@ -138,13 +139,19 @@ class ReportWriter:
             
             # 예측 데이터 준비
             predictions_text = "\n".join([
-                f"기술: {pred.technology}\n예측: {pred.prediction}\n신뢰도: {pred.confidence}\n시기: {pred.timeframe}\n시장 적용성: {pred.market_applicability}\n위험 요소: {', '.join(pred.risk_factors)}\n시장 증거: {[news.title for news in pred.market_evidence]}"
+                f"예측: {pred.prediction}\n"
+                f"신뢰도: {pred.confidence}\n"
+                f"시기: {pred.timeframe}\n"
+                f"시장 영향: {pred.market_impact}\n"
+                f"위험 요소: {', '.join(pred.risks)}\n"
+                f"기회 요소: {', '.join(pred.opportunities)}\n"
+                f"권장사항: {', '.join(pred.recommendations)}"
                 for pred in predictions
             ])
             
             # LLM에 요청
-            response = openai.ChatCompletion.create(
-                model="gpt-4",
+            response = self.client.chat.completions.create(
+                model="gpt-4-turbo-preview",
                 messages=[
                     {"role": "system", "content": "당신은 UAM 기술 트렌드 분석 전문가입니다. 모든 결과는 반드시 한국어로 작성하세요."},
                     {"role": "user", "content": f"다음 예측 데이터를 바탕으로 예측 보고서를 작성해주세요. 반드시 한국어로 작성하세요.\n\n{predictions_text}"}
@@ -156,7 +163,7 @@ class ReportWriter:
             return response.choices[0].message.content
             
         except Exception as e:
-            print(f"LLM 예측 섹션 생성 중 오류: {str(e)}")
+            logger.error(f"LLM 예측 섹션 생성 중 오류: {str(e)}")
             return self._format_prediction_section_fallback(predictions)
     
     def _format_prediction_section_fallback(self, predictions: List[TrendPrediction]) -> str:
@@ -166,16 +173,27 @@ class ReportWriter:
         section = "3. 기술 발전 예측\n\n"
         
         for pred in predictions:
-            section += f"### {pred.technology}\n"
-            section += f"예측: {pred.prediction}\n"
+            section += f"### 예측: {pred.prediction}\n"
             section += f"신뢰도: {pred.confidence:.2f}\n"
             section += f"예상 시기: {pred.timeframe}\n"
-            section += f"시장 적용성: {pred.market_applicability:.2f}\n\n"
+            section += f"시장 영향: {pred.market_impact}\n\n"
             
-            if pred.risk_factors:
+            if pred.risks:
                 section += "위험 요소:\n"
-                for risk in pred.risk_factors:
+                for risk in pred.risks:
                     section += f"- {risk}\n"
+                section += "\n"
+            
+            if pred.opportunities:
+                section += "기회 요소:\n"
+                for opp in pred.opportunities:
+                    section += f"- {opp}\n"
+                section += "\n"
+            
+            if pred.recommendations:
+                section += "권장사항:\n"
+                for rec in pred.recommendations:
+                    section += f"- {rec}\n"
                 section += "\n"
         
         return section
@@ -188,7 +206,7 @@ class ReportWriter:
             if not self.openai_api_key:
                 return self._generate_conclusion_fallback(trends, predictions)
             
-            conclusion_text = f"트렌드: {[trend.name for trend in trends]}\n예측: {[pred.technology for pred in predictions]}"
+            conclusion_text = f"트렌드: {[trend.name for trend in trends]}\n예측: {[pred.prediction for pred in predictions]}"
             
             response = openai.ChatCompletion.create(
                 model="gpt-4",
@@ -243,10 +261,15 @@ class ReportWriter:
                 return state
             
             # 보고서 생성
-            report = self._generate_report(state.trends, state.predictions)
+            report_obj = self._generate_report(state.trends, state.predictions)
+            if report_obj is None:
+                logger.error("보고서 생성에 실패했습니다.")
+                state.add_error("보고서 생성 실패")
+                return state
             
-            # 생성된 보고서를 상태에 추가
-            state.report = report
+            # Report 객체를 마크다운 형식의 문자열로 변환
+            report_md = self._convert_report_to_markdown(report_obj)
+            state.report = report_md
             
             logger.info("보고서 작성이 완료되었습니다.")
             return state
@@ -257,17 +280,41 @@ class ReportWriter:
             state.add_error(error_msg)
             return state
     
-    def _generate_report(self, trends: List[Any], predictions: List[Any]) -> Report:
+    def _convert_report_to_markdown(self, report: Report) -> str:
+        """Report 객체를 마크다운 형식의 문자열로 변환"""
+        md = f"# {report.title}\n\n"
+        md += f"## 실행 요약\n{report.executive_summary}\n\n"
+        md += f"## 서론\n{report.introduction}\n\n"
+        md += f"## 방법론\n{report.methodology}\n\n"
+        md += f"## 주요 발견사항\n{report.findings}\n\n"
+        md += f"## 트렌드 분석\n{report.trend_analysis}\n\n"
+        md += f"## 미래 전망\n{report.future_outlook}\n\n"
+        md += f"## 결론\n{report.conclusion}\n\n"
+        md += f"## 권장사항\n{report.recommendations}\n\n"
+        if report.appendix:
+            md += f"## 부록\n{report.appendix}\n"
+        return md
+    
+    def _generate_report(self, trends: List[Trend], predictions: List[TrendPrediction]) -> Optional[Report]:
         """보고서 생성"""
         try:
             # 트렌드와 예측 정보를 텍스트로 변환
             trends_text = "\n\n".join([
-                f"트렌드: {trend.name}\n설명: {trend.description}\n중요도: {trend.importance}"
+                f"트렌드: {trend.name}\n"
+                f"설명: {trend.description}\n"
+                f"중요도: {trend.importance}\n"
+                f"증거: {', '.join(trend.evidence)}"
                 for trend in trends
             ])
             
             predictions_text = "\n\n".join([
-                f"트렌드: {pred.trend_name}\n예측: {pred.prediction}\n기간: {pred.timeframe}\n신뢰도: {pred.confidence}"
+                f"예측: {pred.prediction}\n"
+                f"시기: {pred.timeframe}\n"
+                f"신뢰도: {pred.confidence}\n"
+                f"시장 영향: {pred.market_impact}\n"
+                f"위험 요소: {', '.join(pred.risks)}\n"
+                f"기회 요소: {', '.join(pred.opportunities)}\n"
+                f"권장사항: {', '.join(pred.recommendations)}"
                 for pred in predictions
             ])
             
@@ -285,15 +332,35 @@ class ReportWriter:
             )
             
             result = response.choices[0].message.content
-            report_data = result.get('report', {})
-            
-            return Report(
-                title=report_data['title'],
-                summary=report_data['summary'],
-                trends=report_data['trends'],
-                predictions=report_data['predictions'],
-                recommendations=report_data['recommendations']
-            )
+            try:
+                report_data = json.loads(result)
+                if not isinstance(report_data, dict):
+                    raise ValueError("응답이 딕셔너리 형식이 아닙니다")
+                
+                # 필수 필드 검증
+                required_fields = ['title', 'executive_summary', 'introduction', 'methodology', 
+                                 'findings', 'trend_analysis', 'future_outlook', 'conclusion', 
+                                 'recommendations']
+                for field in required_fields:
+                    if field not in report_data or not report_data[field]:
+                        logger.warning(f"필수 필드 '{field}'가 누락되었거나 비어있습니다.")
+                        report_data[field] = f"[{field} 내용 없음]"
+                
+                return Report(
+                    title=report_data['title'],
+                    executive_summary=report_data['executive_summary'],
+                    introduction=report_data['introduction'],
+                    methodology=report_data['methodology'],
+                    findings=report_data['findings'],
+                    trend_analysis=report_data['trend_analysis'],
+                    future_outlook=report_data['future_outlook'],
+                    conclusion=report_data['conclusion'],
+                    recommendations=report_data['recommendations'],
+                    appendix=report_data.get('appendix', '')
+                )
+            except json.JSONDecodeError as e:
+                logger.error(f"JSON 파싱 실패: {str(e)}")
+                return None
             
         except Exception as e:
             logger.error(f"보고서 생성 중 오류 발생: {str(e)}")

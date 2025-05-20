@@ -11,7 +11,7 @@ from agents.research_collector import ResearchCollector
 from agents.data_preprocessor import DataPreprocessor
 from agents.data_retriever import DataRetriever
 from agents.tech_trend_summarizer import TechTrendSummarizer
-from agents.trend_prediction import TrendPrediction
+from agents.trend_prediction import TrendPredictor
 from agents.report_writer import ReportWriter
 
 # 재귀 깊이 제한 증가
@@ -28,7 +28,6 @@ def validate_environment():
     """필요한 디렉토리와 환경 변수를 확인합니다."""
     # 필요한 디렉토리 생성
     os.makedirs("data/vectordb", exist_ok=True)
-    os.makedirs("logs", exist_ok=True)
     
     # 환경 변수 로드
     load_dotenv()
@@ -74,7 +73,7 @@ def main():
         data_preprocessor = DataPreprocessor()
         data_retriever = DataRetriever()
         tech_trend_summarizer = TechTrendSummarizer()
-        trend_prediction = TrendPrediction()
+        trend_predictor = TrendPredictor()
         report_writer = ReportWriter()
         
         # 워크플로우 실행
@@ -91,7 +90,7 @@ def main():
         state = tech_trend_summarizer.run(state)
         
         logger.info("트렌드 예측 시작")
-        state = trend_prediction.run(state)
+        state = trend_predictor.run(state)
         
         logger.info("보고서 작성 시작")
         state = report_writer.run(state)

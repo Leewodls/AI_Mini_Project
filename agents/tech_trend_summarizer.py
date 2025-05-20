@@ -48,13 +48,35 @@ class TechTrendSummarizer:
                 logger.warning("요약할 검색 데이터가 없습니다.")
                 return state
             
+            # 데이터 유효성 검사
+            valid_data = []
+            for data in state.retrieved_data:
+                if not hasattr(data, 'title') or not hasattr(data, 'content') or not hasattr(data, 'key_points'):
+                    logger.warning(f"잘못된 데이터 형식 발견: {data}")
+                    continue
+                if not data.title or not data.content:
+                    logger.warning(f"필수 필드가 비어있는 데이터 발견: {data}")
+                    continue
+                valid_data.append(data)
+            
+            if not valid_data:
+                logger.error("유효한 검색 데이터가 없습니다.")
+                state.add_error("유효한 검색 데이터가 없습니다.")
+                return state
+            
             # 검색된 데이터를 바탕으로 트렌드 요약
-            trends = self._summarize_trends(state.retrieved_data)
+            trends = self._summarize_trends(valid_data)
             
             # 요약된 트렌드를 상태에 추가
+            logger.info(f"생성된 트렌드 수: {len(trends)}")
             for trend in trends:
-                state.trends.append(trend)
+                if isinstance(trend, Trend):
+                    state.trends.append(trend)
+                    logger.debug(f"트렌드 추가됨: {trend.name}")
+                else:
+                    logger.warning(f"잘못된 트렌드 객체 형식: {trend}")
             
+            logger.info(f"최종 상태의 트렌드 수: {len(state.trends)}")
             return state
             
         except Exception as e:
@@ -72,40 +94,72 @@ class TechTrendSummarizer:
 
             logger.info(f"총 {len(retrieved_data)}개의 데이터로 트렌드 요약 시작")
             
-            # 검색된 데이터를 텍스트로 변환
-            text = "\n\n".join([
-                f"제목: {data.title}\n내용: {data.content}\n주요 포인트: {', '.join(data.key_points)}"
-                for data in retrieved_data
-            ])
+            # 데이터 구조 로깅
+            for idx, data in enumerate(retrieved_data, 1):
+                logger.debug(f"데이터 {idx} 구조: title={type(data.title)}, content={type(data.content)}, key_points={type(data.key_points)}")
             
+            # 검색된 데이터를 텍스트로 변환
+            text_parts = []
+            for data in retrieved_data:
+                try:
+                    # key_points 처리
+                    if isinstance(data.key_points, (list, tuple)):
+                        key_points_str = ', '.join(str(point) for point in data.key_points)
+                    else:
+                        key_points_str = str(data.key_points)
+                    
+                    # 텍스트 부분 생성
+                    text_part = f"제목: {str(data.title)}\n내용: {str(data.content)}\n주요 포인트: {key_points_str}"
+                    text_parts.append(text_part)
+                except Exception as e:
+                    logger.warning(f"데이터 변환 중 오류 발생 (무시됨): {str(e)}")
+                    continue
+            
+            if not text_parts:
+                logger.error("변환된 텍스트가 없습니다.")
+                return []
+            
+            text = "\n\n".join(text_parts)
             logger.debug(f"요약할 텍스트 크기: {len(text)} 문자")
             
             # GPT 모델 호출
-            response = self.client.chat.completions.create(
-                model="gpt-4-turbo-preview",
-                messages=[
-                    {"role": "system", "content": self.prompts['system_prompt']},
-                    {"role": "user", "content": self.prompts['prompts']['trend_summary'].format(
-                        text=text
-                    )}
-                ],
-                response_format={"type": "json_object"}
-            )
+            try:
+                response = self.client.chat.completions.create(
+                    model="gpt-4-turbo-preview",
+                    messages=[
+                        {"role": "system", "content": self.prompts.get('system_prompt', '')},
+                        {"role": "user", "content": self.prompts.get('prompts', {}).get('trend_summary', '').format(
+                            text=text
+                        )}
+                    ],
+                    response_format={"type": "json_object"},
+                    temperature=0.3
+                )
+            except Exception as e:
+                logger.error(f"GPT API 호출 실패: {str(e)}")
+                return []
+            
+            if not response or not response.choices:
+                logger.error("GPT 응답이 비어있습니다.")
+                return []
             
             result = response.choices[0].message.content
+            if not result:
+                logger.error("GPT 응답 내용이 비어있습니다.")
+                return []
+            
             logger.debug(f"GPT 응답 수신: {len(result)} 문자")
-            logger.debug(f"GPT 응답 내용: {result[:500]}...")  # 처음 500자만 로깅
+            logger.debug(f"GPT 응답 내용: {result[:500]}...")
             
             try:
                 # JSON 문자열을 파싱
                 trends_data = json.loads(result)
-                logger.debug(f"파싱된 트렌드 데이터 구조: {json.dumps(trends_data, ensure_ascii=False, indent=2)[:1000]}...")
                 if not isinstance(trends_data, dict):
                     logger.error("응답이 딕셔너리 형식이 아닙니다")
                     return []
                 
-                # key_trends 또는 trends 필드 확인
-                trends = trends_data.get('key_trends', trends_data.get('trends', []))
+                # key_trends 필드 확인
+                trends = trends_data.get('key_trends', [])
                 if not isinstance(trends, list):
                     logger.error("트렌드 데이터가 리스트 형식이 아닙니다")
                     return []
@@ -119,21 +173,36 @@ class TechTrendSummarizer:
                 trend_objects = []
                 for idx, trend in enumerate(trends, 1):
                     try:
-                        # 다양한 필드명 지원
-                        name = trend.get('name') or trend.get('trend_name', '')
-                        description = trend.get('description', '')
-                        evidence = trend.get('evidence') or trend.get('supporting_evidence', [])
-                        importance = trend.get('importance', 'medium')
+                        if not isinstance(trend, dict):
+                            logger.warning(f"트렌드 {idx}가 딕셔너리 형식이 아닙니다")
+                            continue
+                            
+                        # 필수 필드 검증
+                        name = trend.get('name')
+                        description = trend.get('description')
+                        evidence = trend.get('evidence', [])
+                        importance = trend.get('importance', '중간')
                         
                         if not name or not description:
                             logger.warning(f"트렌드 {idx}의 필수 정보가 누락되었습니다")
                             continue
+                        
+                        # importance 값 검증
+                        if importance not in ['높음', '중간', '낮음']:
+                            logger.warning(f"트렌드 {idx}의 중요도가 유효하지 않습니다: {importance}")
+                            importance = '중간'
+                        
+                        # evidence 처리
+                        if isinstance(evidence, (list, tuple)):
+                            evidence_list = [str(e) for e in evidence]
+                        else:
+                            evidence_list = [str(evidence)]
                             
                         trend_obj = Trend(
                             name=str(name),
                             description=str(description),
-                            evidence=list(evidence) if isinstance(evidence, (list, tuple)) else [str(evidence)],
-                            importance=str(importance)
+                            evidence=evidence_list,
+                            importance=importance
                         )
                         trend_objects.append(trend_obj)
                         logger.debug(f"트렌드 {idx}/{len(trends)} 생성 완료: {trend_obj.name}")

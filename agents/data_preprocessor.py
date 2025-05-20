@@ -163,7 +163,7 @@ class DataPreprocessor:
                 keywords = list(dict.fromkeys(keywords))
                 
                 # 최대 10개 키워드 반환
-                return keywords[:10]
+                return keywords
                 
             except json.JSONDecodeError as e:
                 logger.error(f"키워드 데이터 파싱 실패: {str(e)}")
@@ -247,14 +247,20 @@ class DataPreprocessor:
             # 각 데이터 전처리
             for i, data in enumerate(state.research_data):
                 try:
+                    logger.debug(f"데이터 {i+1} 전처리 시작: title='{data.title[:50]}...'")
+                    
                     # 텍스트 정제
                     cleaned_text = await self._clean_text_async(data.summary)
                     if not cleaned_text:
-                        logger.warning(f"데이터 {i+1}의 텍스트 정제 실패")
+                        logger.warning(f"데이터 {i+1}의 텍스트 정제 실패 (원본 텍스트 사용)")
+                        logger.debug(f"원본 텍스트: {data.summary[:100]}...")
                         cleaned_text = data.summary  # 원본 텍스트 사용
+                    else:
+                        logger.debug(f"데이터 {i+1} 텍스트 정제 완료: {len(cleaned_text)} 문자")
                     
                     # 키워드 추출
                     keywords = await self._extract_keywords_async(cleaned_text)
+                    logger.debug(f"데이터 {i+1} 키워드 추출: {keywords}")
                     
                     # 데이터 업데이트
                     data.summary = cleaned_text
@@ -282,7 +288,11 @@ class DataPreprocessor:
                     continue
             
             # 전처리된 데이터 필터링 (최소한의 데이터는 유지)
+            original_count = len(state.research_data)
             state.research_data = [data for data in state.research_data if data.summary]
+            filtered_count = len(state.research_data)
+            if original_count != filtered_count:
+                logger.info(f"데이터 필터링: {original_count}개 → {filtered_count}개 (summary가 비어있는 {original_count - filtered_count}개 제외)")
             
             # Vector DB에 문서 저장
             if processed_documents:
