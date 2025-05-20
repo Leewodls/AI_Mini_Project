@@ -42,6 +42,10 @@ class RetrievedData:
     content: str
     relevance_score: float
     key_points: List[str]
+    source: str  # 출처 추가
+    url: Optional[str] = None  # URL 추가
+    type: str = 'research'  # 데이터 타입 추가
+    metadata: Dict[str, Any] = field(default_factory=dict)  # 추가 메타데이터
 
 @dataclass
 class Trend:
@@ -49,7 +53,9 @@ class Trend:
     name: str
     description: str
     evidence: List[str]
-    importance: str  # 'high', 'medium', 'low'
+    importance: str  # '높음', '중간', '낮음'
+    sources: List[str] = field(default_factory=list)  # 출처 정보 추가
+    related_news: List[NewsData] = field(default_factory=list)
 
 @dataclass
 class TrendPrediction:
@@ -88,6 +94,7 @@ class AgentState:
     trends: List[Trend] = field(default_factory=list)
     predictions: List[TrendPrediction] = field(default_factory=list)
     report: Optional[Report] = None
+    report_path: str = ""
     errors: List[str] = field(default_factory=list)
     created_at: datetime = field(default_factory=datetime.now)
     updated_at: datetime = field(default_factory=datetime.now)

@@ -9,6 +9,11 @@ from openai import OpenAI
 import yaml
 from dotenv import load_dotenv
 import json
+import pathlib
+import markdown
+from weasyprint import HTML, CSS
+from weasyprint.text.fonts import FontConfiguration
+import re
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +33,61 @@ class ReportWriter:
         
         self.client = OpenAI(api_key=self.openai_api_key)
         self.prompts = self._load_prompts()
+        
+        # 보고서 저장 디렉토리 설정
+        self.report_dir = pathlib.Path("outputs/reports")
+        self.report_dir.mkdir(parents=True, exist_ok=True)
+        
+        # PDF 스타일 설정
+        self.pdf_style = """
+        @page {
+            margin: 2.5cm;
+            @top-right {
+                content: counter(page);
+            }
+        }
+        body {
+            font-family: 'Noto Sans KR', sans-serif;
+            line-height: 1.6;
+            color: #333;
+        }
+        h1 {
+            font-size: 24pt;
+            color: #2c3e50;
+            border-bottom: 2px solid #3498db;
+            padding-bottom: 0.3em;
+            margin-top: 2em;
+        }
+        h2 {
+            font-size: 20pt;
+            color: #34495e;
+            margin-top: 1.5em;
+        }
+        h3 {
+            font-size: 16pt;
+            color: #2c3e50;
+            margin-top: 1.2em;
+        }
+        p {
+            margin: 1em 0;
+            text-align: justify;
+        }
+        ul, ol {
+            margin: 1em 0;
+            padding-left: 2em;
+        }
+        li {
+            margin: 0.5em 0;
+        }
+        .metadata {
+            font-size: 10pt;
+            color: #7f8c8d;
+            border-top: 1px solid #bdc3c7;
+            margin-top: 2em;
+            padding-top: 1em;
+        }
+        """
+        
         logger.info("보고서 작성 에이전트 초기화 완료")
     
     def _load_prompts(self) -> Dict:
@@ -253,6 +313,77 @@ class ReportWriter:
         
         return report
     
+    def _save_report(self, report_md: str, report_obj: Report) -> str:
+        """보고서를 파일로 저장 (PDF 형식)"""
+        try:
+            # 파일명 생성 (날짜_시간_제목)
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            safe_title = "".join(c for c in report_obj.title if c.isalnum() or c in (' ', '-', '_')).strip()
+            safe_title = safe_title.replace(' ', '_')
+            base_filename = f"{timestamp}_{safe_title}"
+            
+            # 메타데이터 생성
+            metadata = {
+                "title": report_obj.title,
+                "generated_at": datetime.now().isoformat(),
+                "sections": {
+                    "executive_summary": len(report_obj.executive_summary),
+                    "introduction": len(report_obj.introduction),
+                    "methodology": len(report_obj.methodology),
+                    "findings": len(report_obj.findings),
+                    "trend_analysis": len(report_obj.trend_analysis),
+                    "future_outlook": len(report_obj.future_outlook),
+                    "conclusion": len(report_obj.conclusion),
+                    "recommendations": len(report_obj.recommendations),
+                    "appendix": len(report_obj.appendix)
+                }
+            }
+            
+            # 메타데이터를 YAML 형식으로 변환
+            metadata_yaml = yaml.dump(metadata, allow_unicode=True, sort_keys=False)
+            
+            # 최종 보고서 내용 생성 (메타데이터 + 본문)
+            final_content = f"---\n{metadata_yaml}---\n\n{report_md}"
+            
+            # 마크다운을 HTML로 변환
+            html_content = markdown.markdown(
+                final_content,
+                extensions=['tables', 'fenced_code', 'codehilite']
+            )
+            
+            # HTML 문서 생성
+            html_doc = f"""
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <meta charset="UTF-8">
+                <title>{report_obj.title}</title>
+                <style>{self.pdf_style}</style>
+            </head>
+            <body>
+                {html_content}
+            </body>
+            </html>
+            """
+            
+            # PDF 파일 경로
+            pdf_path = self.report_dir / f"{base_filename}.pdf"
+            
+            # PDF 생성
+            font_config = FontConfiguration()
+            HTML(string=html_doc).write_pdf(
+                pdf_path,
+                stylesheets=[CSS(string=self.pdf_style)],
+                font_config=font_config
+            )
+            
+            logger.info(f"PDF 보고서가 저장되었습니다: {pdf_path}")
+            return str(pdf_path)
+            
+        except Exception as e:
+            logger.error(f"PDF 보고서 저장 중 오류 발생: {str(e)}")
+            return None
+    
     def run(self, state: AgentState) -> AgentState:
         """보고서 작성 실행"""
         try:
@@ -269,9 +400,17 @@ class ReportWriter:
             
             # Report 객체를 마크다운 형식의 문자열로 변환
             report_md = self._convert_report_to_markdown(report_obj)
-            state.report = report_md
             
-            logger.info("보고서 작성이 완료되었습니다.")
+            # 보고서 저장
+            saved_path = self._save_report(report_md, report_obj)
+            if saved_path:
+                state.report = report_md
+                state.report_path = saved_path
+                logger.info(f"보고서가 성공적으로 저장되었습니다: {saved_path}")
+            else:
+                logger.error("보고서 저장에 실패했습니다.")
+                state.add_error("보고서 저장 실패")
+            
             return state
             
         except Exception as e:
@@ -281,20 +420,39 @@ class ReportWriter:
             return state
     
     def _convert_report_to_markdown(self, report: Report) -> str:
-        """Report 객체를 마크다운 형식의 문자열로 변환"""
+        """보고서를 마크다운 형식으로 변환"""
         md = f"# {report.title}\n\n"
-        md += f"## 실행 요약\n{report.executive_summary}\n\n"
-        md += f"## 서론\n{report.introduction}\n\n"
-        md += f"## 방법론\n{report.methodology}\n\n"
-        md += f"## 주요 발견사항\n{report.findings}\n\n"
-        md += f"## 트렌드 분석\n{report.trend_analysis}\n\n"
-        md += f"## 미래 전망\n{report.future_outlook}\n\n"
-        md += f"## 결론\n{report.conclusion}\n\n"
-        md += f"## 권장사항\n{report.recommendations}\n\n"
+        
+        md += "## 실행 요약\n"
+        md += f"{report.executive_summary}\n\n"
+        
+        md += "## 서론\n"
+        md += f"{report.introduction}\n\n"
+        
+        md += "## 연구 방법론\n"
+        md += f"{report.methodology}\n\n"
+        
+        md += "## 주요 발견사항\n"
+        md += f"{report.findings}\n\n"
+        
+        md += "## 트렌드 분석\n"
+        md += f"{report.trend_analysis}\n\n"
+        
+        md += "## 미래 전망\n"
+        md += f"{report.future_outlook}\n\n"
+        
+        md += "## 결론\n"
+        md += f"{report.conclusion}\n\n"
+        
+        md += "## 권장사항\n"
+        md += f"{report.recommendations}\n\n"
+        
         if report.appendix:
-            md += f"## 부록\n{report.appendix}\n"
+            md += "## 부록\n"
+            md += f"{report.appendix}\n\n"
+        
         return md
-    
+
     def _generate_report(self, trends: List[Trend], predictions: List[TrendPrediction]) -> Optional[Report]:
         """보고서 생성"""
         try:
@@ -318,50 +476,116 @@ class ReportWriter:
                 for pred in predictions
             ])
             
-            # GPT 모델 호출
-            response = self.client.chat.completions.create(
+            # 참고문헌 및 출처 정보 생성
+            references = self._generate_references_content(trends, predictions)
+            
+            # 각 섹션별로 개별 생성
+            sections = {}
+            
+            # 1. 제목 생성
+            title_response = self.client.chat.completions.create(
                 model="gpt-4-turbo-preview",
                 messages=[
-                    {"role": "system", "content": self.prompts['system_prompt']},
-                    {"role": "user", "content": self.prompts['prompts']['report_generation'].format(
-                        trends=trends_text,
-                        predictions=predictions_text
-                    )}
+                    {"role": "system", "content": "당신은 UAM 기술 트렌드 분석 보고서 작성 전문가입니다. 주어진 정보를 바탕으로 보고서 제목을 생성해주세요. 제목만 생성하고 다른 설명은 하지 마세요."},
+                    {"role": "user", "content": f"다음 정보를 바탕으로 보고서 제목을 생성해주세요:\n\n트렌드:\n{trends_text}\n\n예측:\n{predictions_text}"}
                 ],
-                response_format={"type": "json_object"}
+                temperature=0.7,
+                max_tokens=100
             )
+            sections['title'] = title_response.choices[0].message.content.strip()
             
-            result = response.choices[0].message.content
-            try:
-                report_data = json.loads(result)
-                if not isinstance(report_data, dict):
-                    raise ValueError("응답이 딕셔너리 형식이 아닙니다")
-                
-                # 필수 필드 검증
-                required_fields = ['title', 'executive_summary', 'introduction', 'methodology', 
-                                 'findings', 'trend_analysis', 'future_outlook', 'conclusion', 
-                                 'recommendations']
-                for field in required_fields:
-                    if field not in report_data or not report_data[field]:
-                        logger.warning(f"필수 필드 '{field}'가 누락되었거나 비어있습니다.")
-                        report_data[field] = f"[{field} 내용 없음]"
-                
-                return Report(
-                    title=report_data['title'],
-                    executive_summary=report_data['executive_summary'],
-                    introduction=report_data['introduction'],
-                    methodology=report_data['methodology'],
-                    findings=report_data['findings'],
-                    trend_analysis=report_data['trend_analysis'],
-                    future_outlook=report_data['future_outlook'],
-                    conclusion=report_data['conclusion'],
-                    recommendations=report_data['recommendations'],
-                    appendix=report_data.get('appendix', '')
+            # 2. 실행 요약 생성
+            summary_response = self.client.chat.completions.create(
+                model="gpt-4-turbo-preview",
+                messages=[
+                    {"role": "system", "content": "당신은 UAM 기술 트렌드 분석 보고서 작성 전문가입니다. 주어진 정보를 바탕으로 5줄 이내의 실행 요약을 생성해주세요."},
+                    {"role": "user", "content": f"다음 정보를 바탕으로 실행 요약을 생성해주세요:\n\n트렌드:\n{trends_text}\n\n예측:\n{predictions_text}"}
+                ],
+                temperature=0.7,
+                max_tokens=500
+            )
+            sections['executive_summary'] = summary_response.choices[0].message.content.strip()
+            
+            # 3. 나머지 섹션 생성
+            section_prompts = {
+                'introduction': "UAM의 정의, 현재 시장 상황, 연구 목적을 포함한 서론을 작성해주세요.",
+                'methodology': "데이터 수집 및 분석 방법에 대한 연구 방법론을 작성해주세요.",
+                'findings': "핵심 트렌드를 요약한 주요 발견사항을 작성해주세요.",
+                'trend_analysis': "각 트렌드별 상세 분석을 작성해주세요.",
+                'future_outlook': "예측 결과와 시나리오를 포함한 미래 전망을 작성해주세요.",
+                'conclusion': "주요 시사점을 포함한 결론을 작성해주세요.",
+                'recommendations': "실무적 제안을 포함한 권장사항을 작성해주세요."
+            }
+            
+            for section, prompt in section_prompts.items():
+                response = self.client.chat.completions.create(
+                    model="gpt-4-turbo-preview",
+                    messages=[
+                        {"role": "system", "content": f"당신은 UAM 기술 트렌드 분석 보고서 작성 전문가입니다. {prompt}"},
+                        {"role": "user", "content": f"다음 정보를 바탕으로 {section}를 작성해주세요:\n\n트렌드:\n{trends_text}\n\n예측:\n{predictions_text}"}
+                    ],
+                    temperature=0.7,
+                    max_tokens=1000
                 )
-            except json.JSONDecodeError as e:
-                logger.error(f"JSON 파싱 실패: {str(e)}")
-                return None
+                sections[section] = response.choices[0].message.content.strip()
+            
+            # appendix는 참고문헌으로 설정
+            sections['appendix'] = references
+            
+            # Report 객체 생성
+            return Report(
+                title=sections['title'],
+                executive_summary=sections['executive_summary'],
+                introduction=sections['introduction'],
+                methodology=sections['methodology'],
+                findings=sections['findings'],
+                trend_analysis=sections['trend_analysis'],
+                future_outlook=sections['future_outlook'],
+                conclusion=sections['conclusion'],
+                recommendations=sections['recommendations'],
+                appendix=sections['appendix']
+            )
             
         except Exception as e:
             logger.error(f"보고서 생성 중 오류 발생: {str(e)}")
-            return None 
+            return None
+
+    def _generate_references_content(self, trends: List[Trend], predictions: List[TrendPrediction]) -> str:
+        """참고문헌 및 출처 내용 생성"""
+        try:
+            references_text = "### 참고문헌\n\n"
+            
+            # 트렌드에서 참고문헌 수집
+            for trend in trends:
+                if trend.sources:
+                    for source in trend.sources:
+                        references_text += f"- {source}\n"
+                if trend.evidence:
+                    for evidence in trend.evidence:
+                        references_text += f"- {evidence}\n"
+            
+            # 예측에서 참고문헌 수집
+            for pred in predictions:
+                if hasattr(pred, 'sources') and pred.sources:
+                    for source in pred.sources:
+                        references_text += f"- {source}\n"
+            
+            # 데이터 출처 추가
+            references_text += "\n### 데이터 출처\n\n"
+            references_text += "1. UAM 관련 뉴스 데이터베이스\n"
+            references_text += "2. 기술 트렌드 분석 보고서\n"
+            references_text += "3. 시장 조사 보고서\n"
+            references_text += "4. 전문가 인터뷰 및 의견\n"
+            references_text += "5. 산업 동향 보고서\n\n"
+            
+            # 생성 정보 추가
+            references_text += "### 보고서 생성 정보\n\n"
+            references_text += f"- 생성일시: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
+            references_text += "- 생성 도구: GPT-4 기반 UAM 기술 트렌드 분석 시스템\n"
+            references_text += "- 데이터 수집 기간: 최근 1년\n"
+            
+            return references_text
+            
+        except Exception as e:
+            logger.error(f"참고문헌 내용 생성 중 오류 발생: {str(e)}")
+            return "[참고문헌 내용 생성 실패]" 

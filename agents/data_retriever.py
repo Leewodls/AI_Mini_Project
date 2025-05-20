@@ -8,6 +8,7 @@ from sentence_transformers import SentenceTransformer
 from util.agent_state import AgentState, RetrievedData
 from dotenv import load_dotenv
 from tools.vector_store import VectorStore
+import asyncio
 
 logger = logging.getLogger(__name__)
 
@@ -53,9 +54,14 @@ class DataRetriever:
                     title=result['title'],
                     content=result['content'],
                     relevance_score=result['relevance_score'],
-                    key_points=result['key_points']
+                    key_points=result['key_points'],
+                    source=result.get('source', '알 수 없음'),
+                    url=result.get('url', ''),
+                    type=result.get('type', 'research'),
+                    metadata=result.get('metadata', {})
                 )
                 state.retrieved_data.append(retrieved_data)
+                logger.debug(f"검색 결과 추가: {retrieved_data.title} (출처: {retrieved_data.source})")
             
             return state
             
@@ -92,6 +98,14 @@ class DataRetriever:
             try:
                 result = json.loads(content)
                 if isinstance(result, dict) and 'relevant_docs' in result:
+                    # 검색 결과에 메타데이터 추가
+                    for doc in result['relevant_docs']:
+                        if isinstance(doc, dict):
+                            metadata = doc.get('metadata', {})
+                            doc['source'] = metadata.get('source', '알 수 없음')
+                            doc['url'] = metadata.get('url', '')
+                            doc['type'] = metadata.get('type', 'research')
+                            doc['metadata'] = metadata
                     return result['relevant_docs']
                 return search_results
             except json.JSONDecodeError:
@@ -102,36 +116,37 @@ class DataRetriever:
             logger.error(f"의미론적 검색 중 오류 발생: {str(e)}")
             return []
     
-    async def _semantic_search_async(self, query: str, top_k: int = 5) -> List[Dict[str, Any]]:
-        """의미론적 검색 (비동기)"""
+    async def _semantic_search_async(self, query: str) -> List[Dict[str, Any]]:
+        """의미론적 검색 수행 (비동기)"""
         try:
-            # 벡터 저장소에서 검색
-            search_results = self.vector_store.search(query, top_k=top_k)
-            
-            if not search_results:
-                logger.warning(f"검색 결과가 없습니다: {query}")
-                return []
-            
-            # 검색 결과를 GPT로 재순위화
-            response = await self._process_text_async(
-                json.dumps({
-                    'query': query,
-                    'results': search_results
-                }, ensure_ascii=False),
-                'semantic_search'
+            # Vector DB 검색
+            results = await asyncio.to_thread(
+                self.vector_store.search,
+                query=query,
+                n_results=10
             )
             
-            if not response:
-                return search_results
+            if not results:
+                logger.warning("검색 결과가 없습니다.")
+                return []
             
-            try:
-                result = json.loads(response)
-                if isinstance(result, dict) and 'relevant_docs' in result:
-                    return result['relevant_docs']
-                return search_results
-            except json.JSONDecodeError:
-                logger.error("JSON 파싱 실패")
-                return search_results
+            # 검색 결과 처리
+            processed_results = []
+            for result in results:
+                if isinstance(result, dict):
+                    metadata = result.get('metadata', {})
+                    processed_results.append({
+                        'title': result.get('title', ''),
+                        'content': result.get('content', ''),
+                        'relevance_score': result.get('relevance_score', 0.0),
+                        'key_points': metadata.get('key_points', []),
+                        'source': metadata.get('source', '알 수 없음'),
+                        'url': metadata.get('url', ''),
+                        'type': metadata.get('type', 'research'),
+                        'metadata': metadata
+                    })
+            
+            return processed_results
             
         except Exception as e:
             logger.error(f"의미론적 검색 중 오류 발생: {str(e)}")
@@ -157,9 +172,14 @@ class DataRetriever:
                         title=result.get('title', ''),
                         content=result.get('content', ''),
                         relevance_score=result.get('relevance_score', 0.0),
-                        key_points=result.get('key_points', [])
+                        key_points=result.get('key_points', []),
+                        source=result.get('source', '알 수 없음'),
+                        url=result.get('url', ''),
+                        type=result.get('type', 'research'),
+                        metadata=result.get('metadata', {})
                     )
                     state.retrieved_data.append(retrieved_data)
+                    logger.debug(f"검색 결과 추가: {retrieved_data.title} (출처: {retrieved_data.source})")
             
             return state
             

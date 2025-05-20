@@ -1,5 +1,6 @@
 import os
 import sys
+import platform
 from dotenv import load_dotenv
 from util.agent_state import AgentState
 from workflows.agentic_rag_graph import AgenticRAGGraph
@@ -13,6 +14,31 @@ from agents.data_retriever import DataRetriever
 from agents.tech_trend_summarizer import TechTrendSummarizer
 from agents.trend_prediction import TrendPredictor
 from agents.report_writer import ReportWriter
+from pathlib import Path
+
+def setup_environment():
+    """운영체제에 따른 환경 설정"""
+    system = platform.system()
+    
+    if system == 'Darwin':  # macOS
+        # Homebrew 경로 확인
+        brew_paths = [
+            '/opt/homebrew/lib',  # Apple Silicon
+            '/usr/local/lib'      # Intel
+        ]
+        for path in brew_paths:
+            if os.path.exists(path):
+                os.environ['DYLD_LIBRARY_PATH'] = path + ':' + os.environ.get('DYLD_LIBRARY_PATH', '')
+                break
+    elif system == 'Linux':
+        # Linux의 경우 LD_LIBRARY_PATH 사용
+        os.environ['LD_LIBRARY_PATH'] = '/usr/local/lib:' + os.environ.get('LD_LIBRARY_PATH', '')
+    elif system == 'Windows':
+        # Windows의 경우 PATH에 추가
+        os.environ['PATH'] = os.environ.get('PATH', '') + ';C:\\Program Files\\WeasyPrint'
+
+# 환경 설정 실행
+setup_environment()
 
 # 재귀 깊이 제한 증가
 sys.setrecursionlimit(10000)

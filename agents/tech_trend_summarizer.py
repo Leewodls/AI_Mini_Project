@@ -96,7 +96,7 @@ class TechTrendSummarizer:
             
             # 데이터 구조 로깅
             for idx, data in enumerate(retrieved_data, 1):
-                logger.debug(f"데이터 {idx} 구조: title={type(data.title)}, content={type(data.content)}, key_points={type(data.key_points)}")
+                logger.debug(f"데이터 {idx} 구조: title={type(data.title)}, content={type(data.content)}, source={data.source}")
             
             # 검색된 데이터를 텍스트로 변환
             text_parts = []
@@ -108,8 +108,13 @@ class TechTrendSummarizer:
                     else:
                         key_points_str = str(data.key_points)
                     
+                    # 출처 정보 포함
+                    source_info = f"출처: {data.source}"
+                    if data.url:
+                        source_info += f" ({data.url})"
+                    
                     # 텍스트 부분 생성
-                    text_part = f"제목: {str(data.title)}\n내용: {str(data.content)}\n주요 포인트: {key_points_str}"
+                    text_part = f"제목: {str(data.title)}\n내용: {str(data.content)}\n주요 포인트: {key_points_str}\n{source_info}"
                     text_parts.append(text_part)
                 except Exception as e:
                     logger.warning(f"데이터 변환 중 오류 발생 (무시됨): {str(e)}")
@@ -123,33 +128,18 @@ class TechTrendSummarizer:
             logger.debug(f"요약할 텍스트 크기: {len(text)} 문자")
             
             # GPT 모델 호출
-            try:
-                response = self.client.chat.completions.create(
-                    model="gpt-4-turbo-preview",
-                    messages=[
-                        {"role": "system", "content": self.prompts.get('system_prompt', '')},
-                        {"role": "user", "content": self.prompts.get('prompts', {}).get('trend_summary', '').format(
-                            text=text
-                        )}
-                    ],
-                    response_format={"type": "json_object"},
-                    temperature=0.3
-                )
-            except Exception as e:
-                logger.error(f"GPT API 호출 실패: {str(e)}")
-                return []
-            
-            if not response or not response.choices:
-                logger.error("GPT 응답이 비어있습니다.")
-                return []
+            response = self.client.chat.completions.create(
+                model="gpt-4-turbo-preview",
+                messages=[
+                    {"role": "system", "content": self.prompts['system_prompt']},
+                    {"role": "user", "content": self.prompts['prompts']['trend_summarization'].format(
+                        text=text
+                    )}
+                ],
+                response_format={"type": "json_object"}
+            )
             
             result = response.choices[0].message.content
-            if not result:
-                logger.error("GPT 응답 내용이 비어있습니다.")
-                return []
-            
-            logger.debug(f"GPT 응답 수신: {len(result)} 문자")
-            logger.debug(f"GPT 응답 내용: {result[:500]}...")
             
             try:
                 # JSON 문자열을 파싱
@@ -182,6 +172,7 @@ class TechTrendSummarizer:
                         description = trend.get('description')
                         evidence = trend.get('evidence', [])
                         importance = trend.get('importance', '중간')
+                        sources = trend.get('sources', [])  # 출처 정보 추가
                         
                         if not name or not description:
                             logger.warning(f"트렌드 {idx}의 필수 정보가 누락되었습니다")
@@ -197,29 +188,31 @@ class TechTrendSummarizer:
                             evidence_list = [str(e) for e in evidence]
                         else:
                             evidence_list = [str(evidence)]
+                        
+                        # 출처 정보 처리
+                        if isinstance(sources, (list, tuple)):
+                            sources_list = [str(s) for s in sources]
+                        else:
+                            sources_list = [str(sources)] if sources else []
                             
                         trend_obj = Trend(
                             name=str(name),
                             description=str(description),
                             evidence=evidence_list,
-                            importance=importance
+                            importance=importance,
+                            sources=sources_list  # 출처 정보 추가
                         )
                         trend_objects.append(trend_obj)
-                        logger.debug(f"트렌드 {idx}/{len(trends)} 생성 완료: {trend_obj.name}")
+                        logger.debug(f"트렌드 {idx}/{len(trends)} 생성 완료: {trend_obj.name} (출처: {', '.join(trend_obj.sources)})")
+                        
                     except Exception as e:
-                        logger.error(f"트렌드 {idx} 객체 생성 실패: {str(e)}")
+                        logger.error(f"트렌드 {idx} 생성 중 오류 발생: {str(e)}")
                         continue
                 
-                if not trend_objects:
-                    logger.error("생성된 트렌드 객체가 없습니다")
-                    return []
-                
-                logger.info(f"총 {len(trend_objects)}개의 트렌드 객체 생성 완료")
                 return trend_objects
                 
             except json.JSONDecodeError as e:
                 logger.error(f"JSON 파싱 실패: {str(e)}")
-                logger.debug(f"원본 응답: {result}")
                 return []
             
         except Exception as e:

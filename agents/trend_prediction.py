@@ -89,9 +89,9 @@ class TrendPredictor:
                 return []
 
             logger.info(f"트렌드 예측 시작: {len(trends)}개의 트렌드")
+            predictions = []
             
-            # 트렌드 정보를 텍스트로 변환
-            text_parts = []
+            # 각 트렌드에 대해 예측 생성
             for trend in trends:
                 try:
                     # evidence 처리
@@ -100,69 +100,38 @@ class TrendPredictor:
                     else:
                         evidence_str = str(trend.evidence)
                     
-                    # 텍스트 부분 생성
-                    text_part = (
-                        f"트렌드: {str(trend.name)}\n"
-                        f"설명: {str(trend.description)}\n"
-                        f"중요도: {str(trend.importance)}\n"
-                        f"증거: {evidence_str}"
+                    # GPT 모델 호출
+                    response = self.client.chat.completions.create(
+                        model="gpt-4-turbo-preview",
+                        messages=[
+                            {"role": "system", "content": self.prompts.get('system_prompt', '')},
+                            {"role": "user", "content": self.prompts.get('prompts', {}).get('prediction', '').format(
+                                trend_name=trend.name,
+                                trend_description=trend.description,
+                                trend_evidence=evidence_str
+                            )}
+                        ],
+                        response_format={"type": "json_object"},
+                        temperature=0.3,
+                        max_tokens=1500
                     )
-                    text_parts.append(text_part)
-                except Exception as e:
-                    logger.warning(f"트렌드 변환 중 오류 발생 (무시됨): {str(e)}")
-                    continue
-            
-            if not text_parts:
-                logger.error("변환된 텍스트가 없습니다.")
-                return []
-            
-            text = "\n\n".join(text_parts)
-            logger.debug(f"예측할 텍스트 크기: {len(text)} 문자")
-            
-            # GPT 모델 호출
-            try:
-                response = self.client.chat.completions.create(
-                    model="gpt-4-turbo-preview",
-                    messages=[
-                        {"role": "system", "content": self.prompts.get('system_prompt', '')},
-                        {"role": "user", "content": self.prompts.get('prompts', {}).get('prediction', '').format(
-                            trend_name=trends[0].name,
-                            trend_description=trends[0].description,
-                            trend_evidence=', '.join(str(e) for e in trends[0].evidence) if isinstance(trends[0].evidence, (list, tuple)) else str(trends[0].evidence)
-                        )}
-                    ],
-                    response_format={"type": "json_object"},
-                    temperature=0.3,
-                    max_tokens=1500
-                )
-            except Exception as e:
-                logger.error(f"GPT API 호출 실패: {str(e)}")
-                return []
-            
-            if not response or not response.choices:
-                logger.error("GPT 응답이 비어있거나 잘못되었습니다.")
-                logger.debug(f"원본 응답: {response}")
-                return []
-            
-            result = response.choices[0].message.content
-            if not result:
-                logger.error("GPT 응답 내용이 비어있습니다.")
-                return []
-            
-            logger.debug(f"GPT 응답 수신: {len(result)} 문자")
-            logger.debug(f"GPT 응답 내용: {result[:500]}...")
-            
-            try:
-                # JSON 문자열을 파싱
-                prediction_data = json.loads(result)
-                if not isinstance(prediction_data, dict):
-                    logger.error("응답이 딕셔너리 형식이 아닙니다")
-                    return []
-                
-                logger.debug(f"GPT 응답 데이터: {json.dumps(prediction_data, indent=2, ensure_ascii=False)}")
-
-                # 예측 데이터 생성
-                try:
+                    
+                    if not response or not response.choices:
+                        logger.error(f"트렌드 '{trend.name}'에 대한 GPT 응답이 비어있거나 잘못되었습니다.")
+                        continue
+                    
+                    result = response.choices[0].message.content
+                    if not result:
+                        logger.error(f"트렌드 '{trend.name}'에 대한 GPT 응답 내용이 비어있습니다.")
+                        continue
+                    
+                    # JSON 파싱
+                    prediction_data = json.loads(result)
+                    if not isinstance(prediction_data, dict):
+                        logger.error(f"트렌드 '{trend.name}'에 대한 응답이 딕셔너리 형식이 아닙니다")
+                        continue
+                    
+                    # 예측 데이터 생성
                     trend_prediction = TrendPrediction(
                         prediction=str(prediction_data.get('prediction', '')),
                         confidence=float(prediction_data.get('confidence', 0.5)),
@@ -172,20 +141,17 @@ class TrendPredictor:
                         opportunities=[str(o) for o in prediction_data.get('opportunities', [])],
                         recommendations=[str(r) for r in prediction_data.get('recommendations', [])]
                     )
-                    logger.info(f"예측 데이터 생성 완료: {trend_prediction.prediction[:50]}...")
-                    logger.debug(f"생성된 예측 데이터: {trend_prediction}")
-                except Exception as e:
-                    logger.error(f"예측 데이터 생성 중 오류: {str(e)}")
-                    logger.debug(f"예측 데이터 생성 시도 데이터: {prediction_data}")
-                    return []
                     
-                logger.info(f"트렌드 '{trends[0].name}' 예측 완료")
-                return [trend_prediction]
-                
-            except json.JSONDecodeError as e:
-                logger.error(f"JSON 파싱 실패: {str(e)}")
-                logger.debug(f"원본 응답: {result}")
-                return []
+                    predictions.append(trend_prediction)
+                    logger.info(f"트렌드 '{trend.name}' 예측 완료")
+                    logger.debug(f"생성된 예측 데이터: {trend_prediction}")
+                    
+                except Exception as e:
+                    logger.error(f"트렌드 '{trend.name}' 예측 중 오류 발생: {str(e)}")
+                    continue
+            
+            logger.info(f"총 {len(predictions)}개의 예측 생성 완료")
+            return predictions
             
         except Exception as e:
             logger.error(f"트렌드 예측 중 오류 발생: {str(e)}")

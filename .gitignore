@@ -15,7 +15,6 @@ logs/app.log
 
 # 데이터 파일 및 결과 파일
 data/
-outputs/
 data/vectordb/
 *.csv
 *.tsv
@@ -36,7 +35,7 @@ vector_cache/
 vectordb/
 
 # 설정 파일 (YAML)
-config/*.yaml
+
 
 # 시스템 파일 및 IDE 관련 파일
 .DS_Store
@@ -45,8 +44,6 @@ Thumbs.db
 .idea/
 *.sublime-project
 *.sublime-workspace
-
-logs
 
 agents/__pycache__
 tools/__pycache__
